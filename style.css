@@ -168,6 +168,7 @@
     background-color: rgb(255, 255, 255);
     min-height: 500px;
     display: flex;
+    row-gap: 50px;
     flex-wrap: wrap;
     justify-content: space-around;
     padding-top: 50px;
