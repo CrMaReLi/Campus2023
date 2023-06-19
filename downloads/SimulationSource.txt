@@ -1,0 +1,927 @@
+﻿#include <windows.h>
+#include <iostream>
+#include <wingdi.h>
+#include <conio.h>
+#include <vector>
+#include <ctime> 
+#include <string>
+
+/*
+*
+* НЕБОЛЬШОЙ ЭКСКУРС
+*
+* 0 - стоять на месте                                                            ДВИЖУЩИЙСЯ
+* 1 - СИНТАКСИС: 1, x - идти            |   x - указательный ген                 ДВИЖУЩИЙСЯ
+* 2 - фотосинтез                                                                 ДВИЖУЩИЙСЯ
+* 3 - СИНТАКСИС: 3, x - убить клетку    |   x - указательный ген                 ДВИЖУЩИЙСЯ
+* 4 - режим корня                                                                ДВИЖУЩИЙСЯ
+* 5 - СИНТАКСИС: 5, x - потомство       |   x - указательный ген                 ДВИЖУЩИЙСЯ
+*
+* 6 - вверх                                                                      УКАЗАТЕЛЬНЫЙ
+* 7 - влево                                                                      УКАЗАТЕЛЬНЫЙ
+* 8 - вниз                                                                       УКАЗАТЕЛЬНЫЙ
+* 9 - вправо                                                                     УКАЗАТЕЛЬНЫЙ
+*
+* 10 - СИНТАКСИС: 10, x, y, z                                                    ЛОГИЧЕСКИЙ
+* x - возвратный ген
+* y - действительный ген если x = true
+* z - действительный ген если x = false
+*
+* 11 - возвращает, клетка сверху родная?                                         ВОЗВРАТНЫЙ
+* 12 - возвращает, клетка слева  родная?                                         ВОЗВРАТНЫЙ
+* 13 - возвращает, клетка снизу  родная?                                         ВОЗВРАТНЫЙ
+* 14 - возвращает, клетка справо родная?                                         ВОЗВРАТНЫЙ
+* 15 - возвращает, день сейчас или ночь (день true, ночь false)                  ВОЗВРАТНЫЙ
+* 16 - возвращает, есть ли сверху граница                                        ВОЗВРАТНЫЙ
+* 17 - возвращает, есть ли слева  граница                                        ВОЗВРАТНЫЙ
+* 18 - возвращает, есть ли снизу  граница                                        ВОЗВРАТНЫЙ
+* 19 - возвращает, есть ли справа граница                                        ВОЗВРАТНЫЙ
+* 20 - возвращает, больше энергия 100 (true)                                     ВОЗВРАТНЫЙ
+*
+*/
+
+
+using namespace std;
+
+struct CELL {           //Структура клетки
+    int oldx;           //Её координата x один ход назад
+    int oldy;           //Её координата y один ход назад
+    bool alreadyWalk = false;
+    bool boredNow = false;
+    bool initializated = false;
+    bool death = false;
+    int energy;
+    COLORREF cellColor;
+    string type;
+    vector<int> logic;  //Массив, содержащий гены клетки
+};
+
+struct FLOOR {
+    bool free = true;
+    CELL cell;
+    int organics = 0;
+};
+
+int CELL_SIZE = 5;         //Означает размер клетки. Чем меньше - тем больше клеток вместится в экран. Для эксперимента замени на 5.
+int CONSOLE_SIZE_X = 0;     //Означает размер консоли по горизонтали В ПИКСЕЛЯХ. Значение подставляется само.
+int CONSOLE_SIZE_Y = 0;     //Означает размер консоли по вертикали В ПИКСЕЛЯХ. Значение подставляется само.
+
+int INFO_X = 0;             //Означает размер поля для информации по горизонтали В ПИКСЕЛЯХ. Значение подставляется само.
+
+int FIELD_SIZE_PROC = 80;   //Означает размер поля для клеток в процентах от всего размера консоли. Для эксперимента замени на 50.
+int FIELD_SIZE_X = 0;       //Означает размер поля по горизонтали для клеток НЕ В ПИКСЕЛЯХ, а в клетках. Значение подставляется само.
+int FIELD_SIZE_Y = 0;       //Означает размер поля по вертикали для клеток НЕ В ПИКСЕЛЯХ, а в клетках. Значение подставляется само.
+
+HBRUSH FIELD_BACKGROUND = CreateSolidBrush(RGB(10, 10, 10));        //Зарезервированная заливка - используется на заднем плане в поле для клеток
+HBRUSH INFO_BACKGROUND = CreateSolidBrush(RGB(60, 60, 60));         //Зарезервированная заливка - используется на заднем плане в поле для информации
+HPEN FIELD_FOREGROUND = CreatePen(BS_SOLID, 1, RGB(60, 60, 60));    //Зарезервированная ручка   - используется для рисовки границ между клетками
+HBRUSH WHITE = CreateSolidBrush(RGB(255, 255, 255));                //Зарезервированная залива  - используется для зарисовки клеток (временно)
+HBRUSH RED = CreateSolidBrush(RGB(255, 0, 0));                      //Зарезервированная заливка - используется для дебага.
+
+int LOGIC_LENGTH = 0;       //Длинна логики, позднее будет указываться игроком
+int SUN_ENERGY = 0;
+int SPAWN_CELLS = 0;
+int DELAY = 0;
+int MAX_ENERGY = 0;
+int ORGANICS_CELL_DIE = 0;
+int DANGER_ORGANICS_COUNT = 0;
+int ENERGY_NEED_WALK = 0;
+int ENERGY_NEED_DEVISION = 0;
+int ENERGY_NEED_STAY = 0;
+int ORGANICS_POISON = 0;
+int CELLS_EAT_ORGANICS = 0;
+int START_ENERGY = 0;
+bool DELAY_IS_ON = false;
+CELL CLIPBOARD_CELL;
+
+int oneParameter[]{ 0, 2, 4 };            int oneParameterSize = 2;                         //Гены, требующие один символ и их количество
+int twoParameter[]{ 1, 3, 5 };            int twoParameterSize = 2;                         //Гены, требующие два символа и их количество
+int fourParameter[]{ 10 };                 int fourParameterSize = 0;                       //Гены, требующие четыре символа и их количество
+
+int movingParameter[]{ 0, 1, 2, 3, 4, 5 };   int movingParameterSize = 5;                   //Гены, отвечающие за движение
+int sideParameter[]{ 6, 7, 8, 9 };         int sideParameterSize = 3;                       //Гены, отвечающие за направление
+int returnParameter[]{ 11, 12, 13, 14, 15, 16, 17, 18, 19 }; int returnParameterSize = 8;   //Гены, отвечающие за возврат
+int logicParameter[]{ 10 };                 int logicParameterSize = 0;                     //Гены, отвечающие за логику
+
+vector<vector<FLOOR>> map;
+
+void showCursor(bool flag) { //Функция отображающая и скрывающая курсор
+    CONSOLE_CURSOR_INFO ci;
+    GetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &ci);
+    ci.bVisible = flag;
+    SetConsoleCursorInfo(GetStdHandle(STD_OUTPUT_HANDLE), &ci);
+}
+
+void removeScrollbar() { //Убирает скролл бар у консоли (Ставит размер буфера на размер консоли)
+    CONSOLE_SCREEN_BUFFER_INFO csbi;
+    GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &csbi);
+    csbi.dwSize.Y = csbi.srWindow.Bottom - csbi.srWindow.Top + 1;;
+    SetConsoleScreenBufferSize(GetStdHandle(STD_OUTPUT_HANDLE), csbi.dwSize);
+}
+
+void window() { //Делает полноэкранное отоброжение, убирает скролл бар у консоли, прячет курсор, отображает программу на мониторе, на котором она была открыта
+    removeScrollbar();
+    POINT cursor_location;
+    GetCursorPos(&cursor_location);
+    HMONITOR monitor = MonitorFromPoint(cursor_location, NULL);
+    MONITORINFO monitor_info;
+    monitor_info.cbSize = sizeof(MONITORINFO);
+    GetMonitorInfoA(monitor, &monitor_info);
+    SetWindowPos(GetConsoleWindow(), NULL, monitor_info.rcMonitor.left, monitor_info.rcMonitor.top, monitor_info.rcMonitor.right, monitor_info.rcMonitor.bottom, SWP_NOSIZE);
+    ShowWindow(GetConsoleWindow(), SW_MAXIMIZE);
+    SendMessage(GetConsoleWindow(), WM_SYSKEYDOWN, VK_RETURN, 0x20000000);
+    showCursor(false);
+}
+
+void DrawField(int x, int y, int xc, int yc) { //Рисует разметку карты для клеток
+    HDC hdc = GetDC(GetConsoleWindow()); //Получает HDC
+    SelectObject(hdc, FIELD_BACKGROUND); //Выбирает цвет заднего фона поля для клеток
+    Rectangle(hdc, x, y, xc, yc);        //Рисует задний фон поля для клеток
+    SelectObject(hdc, FIELD_FOREGROUND); //Выбирает цвет заднего фона поля для информации
+    for (; y <= yc; y += CELL_SIZE) {    //Цикл, рисующий сетку по Y
+        MoveToEx(hdc, 0, y, NULL);
+        LineTo(hdc, xc, y);
+        FIELD_SIZE_Y++;
+    }
+    for (; x <= xc; x += CELL_SIZE) {    //Цикл, рисующий сетку по X
+        MoveToEx(hdc, x, 0, NULL);
+        LineTo(hdc, x, yc);
+        FIELD_SIZE_X++;
+    }
+    FIELD_SIZE_X--;
+    FIELD_SIZE_Y--;
+    ReleaseDC(GetConsoleWindow(), hdc); //Освобождаем все с HDC
+}
+
+int calculateNumber(int number) { //Высчитываем РОВНОЕ количество вмещающихся клеток по размеру консоли
+    for (; number % CELL_SIZE != 0; number--) {}
+    return number;
+}
+
+void DrawInfoBackground() //Рисует задний фон поля для информации
+{
+    INFO_X = calculateNumber(CONSOLE_SIZE_X / 100 * FIELD_SIZE_PROC) + 1;
+    HDC hdc = GetDC(GetConsoleWindow());
+    SelectObject(hdc, INFO_BACKGROUND);
+    Rectangle(hdc, INFO_X, 0, CONSOLE_SIZE_X, CONSOLE_SIZE_Y);
+    ReleaseDC(GetConsoleWindow(), hdc);
+}
+
+void updateConsoleSize() { //Обновляем значения о размере консоли
+    RECT rect = {};
+    GetClientRect(GetConsoleWindow(), &rect);
+    CONSOLE_SIZE_X = rect.right;
+    CONSOLE_SIZE_Y = rect.bottom;
+}
+
+string resourcesPath() { //Получает путь к исполняемому файлу. ВАЖНО: Путь будет в формате "папка1\\папка2\\папка с моей программой\\"
+    char path[MAX_PATH];
+    GetModuleFileNameA(NULL, path, MAX_PATH);
+    string result = path;
+    int buff = 0;
+    for (int i = result.length(); result[i] != '\\'; i--) {
+        buff = i;
+    }
+    result = result.substr(0, buff);
+    return result;
+}
+
+void drawBackgroundMenu() { //Рисует задний фон в меню
+    HDC dc = GetDC(GetConsoleWindow());
+    HDC dcmem = CreateCompatibleDC(dc);
+    string path = resourcesPath() + "image\\background\\background_menu.bmp";
+    HBITMAP image = (HBITMAP)LoadImageA(NULL, path.c_str(), IMAGE_BITMAP, 240, 135, LR_LOADFROMFILE);
+    SelectObject(dcmem, image);
+    StretchBlt(dc, 0, 0, CONSOLE_SIZE_X, CONSOLE_SIZE_Y, dcmem, 0, 0, 240, 135, SRCCOPY);
+}
+
+void error(string text) {   //Функция, которая будет вызываться при ошибке
+    system("cls");
+    cout << text;
+    while (true) {
+        Beep(400, 500);
+        Beep(300, 500);
+    }
+}
+
+//Функция для меню. В параметр pathimages вводятся названия фотографий в таком формате: "buttonmenu1.bmp buttonexitmenu.bmp startbutton.bmp" и так далее.
+//В параметр activeButton входит число, обозначающее выбранную кнопку при старте меню
+//В параметр button_size_x входит размер всех кнопок по горизонтали. И да, КНОПКИ ДОЛЖНЫ БЫТЬ ОДИНАКОВОГО РАЗМЕРА (150x30)
+//В параметр button_size_y входит размер всех кнопок по вертикали. И да, КНОПКИ ДОЛЖНЫ БЫТЬ ОДИНАКОВОГО РАЗМЕРА (150x30)
+//В параметр button_size входит увеличение кнопок. 1 - настоящий размер. 2 - кнопки увеличены в 2 раза от настоящего размера
+//В параметр offset_y входит отступ между кнопками
+//В параметр start_x входит координата по горизонтали откуда кнопки начнут идти вниз
+//В параметр start_y входит координата по вертикали откуда кнопки начнут идти вниз
+int menu(string pathimages, int activeButton, int button_size_x, int button_size_y, int button_size, int offset_y, int start_x, int start_y) {
+    int buttonsCount = 0;
+    for (int i = 0; i <= pathimages.length(); i++) {
+        if (pathimages[i] == ' ' || i == pathimages.length()) {
+            buttonsCount++;
+        }
+    }
+    vector<string> paths(buttonsCount);
+    int words = 0;
+    for (int i = 0; i <= pathimages.length(); i++) {
+        if (i == 0 || pathimages[i - 1] == ' ') {
+            string buff = "";
+            for (int j = i; j < pathimages.length() + 1 && pathimages[j] != ' '; j++) {
+                buff += pathimages[j];
+            }
+            paths[words] = buff;
+            words++;
+        }
+    }
+    char key = '-';
+    int startOffset = 200;
+    HDC dc = GetDC(GetConsoleWindow());
+    HDC dcmem = CreateCompatibleDC(dc);
+    vector<HBITMAP> imagesActive(buttonsCount);
+    vector<HBITMAP> imagesInactive(buttonsCount);
+    for (int i = 0; i < buttonsCount; i++) {
+        string buff = resourcesPath() + "image\\button\\inactive\\" + paths[i];
+        imagesInactive[i] = (HBITMAP)LoadImageA(NULL, buff.c_str(), IMAGE_BITMAP, button_size_x, button_size_y, LR_LOADFROMFILE);
+        buff = resourcesPath() + "image\\button\\active\\" + paths[i];
+        imagesActive[i] = (HBITMAP)LoadImageA(NULL, buff.c_str(), IMAGE_BITMAP, button_size_x, button_size_y, LR_LOADFROMFILE);
+    }
+
+    while (key != ' ' && key != 13) {
+        drawBackgroundMenu();
+        for (int i = 0; i < buttonsCount; i++) {
+            if (i == activeButton) {
+                SelectObject(dcmem, imagesActive[i]);
+            }
+            else {
+                SelectObject(dcmem, imagesInactive[i]);
+            }
+            int x = start_x;
+            int y = start_y + offset_y * i + button_size_y * i * button_size;
+            StretchBlt(dc, x, y, button_size_x * button_size, button_size_y * button_size, dcmem, 0, 0, button_size_x, button_size_y, SRCCOPY);
+        }
+        key = _getch();
+        if (key == 'w' && activeButton > 0) activeButton--;
+        else if (key == 's' && activeButton < buttonsCount - 1) activeButton++;
+    }
+    return activeButton;
+}
+
+int random(int min, int max) { //Функция рандома от и до. РАНДОМ ВКЛЮЧИТЕЛЬНО!
+    int result;
+    if (min == 0) {
+        result = rand() % (max + 1);
+    }
+    else {
+        if (min > max) {
+            cout << "жопа";
+            return min;
+        }
+        result = min + rand() % max;
+    }
+    return result;
+}
+
+void clear() { //Очищает консоль чёрным цветом (быстрая)
+    RECT rect;
+    GetClientRect(GetConsoleWindow(), &rect);
+    HDC dc = GetDC(GetConsoleWindow());
+    SelectObject(dc, CreateSolidBrush(RGB(0, 0, 0)));
+    Rectangle(dc, rect.left, rect.top, rect.right, rect.bottom);
+    ReleaseDC(GetConsoleWindow(), dc);
+}
+
+vector<int> createLogic(int size) { //Возвращает массив с логикой для клеток
+    vector<int> logic;
+    logic.resize(size);
+    logic.reserve(size);
+    int operation = 0;
+    for (int i = 0; i < size; i++) {
+        if (size - i == 1) {
+            operation = random(0, oneParameterSize);
+            logic[i] = oneParameter[operation];
+        }
+        else if (size - i == 2) {
+            int commandType = random(1, 2);
+            if (commandType == 1) {
+                operation = random(0, oneParameterSize);
+                logic[i] = oneParameter[operation];
+            }
+            else if (commandType == 2) {
+                operation = random(0, twoParameterSize);
+                logic[i] = twoParameter[operation]; i++;
+                operation = random(0, sideParameterSize);
+                logic[i] = sideParameter[operation];
+            }
+        }
+        else if (size - i >= 4) {
+            int commandType = random(1, 3);
+            if (commandType == 1) {
+                operation = random(0, oneParameterSize);
+                logic[i] = oneParameter[operation];
+            }
+            else if (commandType == 2) {
+                operation = random(0, twoParameterSize);
+                logic[i] = twoParameter[operation]; i++;
+                operation = random(0, sideParameterSize);
+                logic[i] = sideParameter[operation];
+            }
+            else if (commandType == 3) {
+                operation = random(0, fourParameterSize);
+                logic[i] = fourParameter[operation]; i++;
+                operation = random(0, returnParameterSize);
+                logic[i] = returnParameter[operation]; i++;
+                if (size - i >= 5) {
+                    int oneOrTwo = random(1, 2);
+                    if (oneOrTwo == 1) {
+                        operation = random(0, oneParameterSize);
+                        logic[i] = oneParameter[operation]; i++;
+                    }
+                    else if (oneOrTwo == 2) {
+                        operation = random(0, twoParameterSize);
+                        logic[i] = twoParameter[operation]; i++;
+                        operation = random(0, sideParameterSize);
+                        logic[i] = sideParameter[operation]; i++;
+                    }
+                }
+                if (size - i >= 2) {
+                    int oneOrTwo = random(1, 2);
+                    if (oneOrTwo == 1) {
+                        operation = random(0, oneParameterSize);
+                        logic[i] = oneParameter[operation]; i++;
+                    }
+                    else if (oneOrTwo == 2) {
+                        operation = random(0, twoParameterSize);
+                        logic[i] = twoParameter[operation]; i++;
+                        operation = random(0, sideParameterSize);
+                        logic[i] = sideParameter[operation]; i++;
+                    }
+                }
+            }
+        }
+    }
+    return logic;
+}
+
+void resizeMap() {
+    map.resize(FIELD_SIZE_X);
+    map.reserve(FIELD_SIZE_X);
+    for (int i = 0; i < FIELD_SIZE_X; i++) {
+        map[i].resize(FIELD_SIZE_Y);
+        map[i].reserve(FIELD_SIZE_Y);
+    }
+    return;
+}
+
+void clearMap() {
+    for (int i = 0; i < map.size(); i++) {
+        map[i].clear();
+    }
+    map.clear();
+    return;
+}
+
+void initColor(int x, int y) {
+    int R = 0, G = 0, B = 0;
+    for (int r = 0; r < LOGIC_LENGTH / 3; r++) {
+        R += map[x][y].cell.logic[r];
+    }
+    for (int g = LOGIC_LENGTH / 3; g < (LOGIC_LENGTH / 3) * 2; g++) {
+        G += map[x][y].cell.logic[g];
+    }
+    for (int b = (LOGIC_LENGTH / 3) * 2; b < LOGIC_LENGTH; b++) {
+        B += map[x][y].cell.logic[b];
+    }
+    R += 100;
+    G += 100;
+    B += 100;
+    if (R > G && R > B) {
+        if (G > B) {
+            G = G / 1.25;
+            B = B / 1.5;
+        }
+    }
+    else if (G > R && G > B) {
+        if (R > B) {
+            R = R / 1.25;
+            B = B / 1.5;
+        }
+    }
+    else if (B > R && B > G) {
+        if (G > R) {
+            G = G / 1.25;
+            R = R / 1.5;
+        }
+    }
+    if (R > 255) R = 255;
+    if (G > 255) G = 255;
+    if (B > 255) B = 255;
+    map[x][y].cell.cellColor = RGB(R, G, B);
+}
+
+bool relativeCell(int x, int y, int x1, int y1) {
+    int count = 0;
+    for (int i = 0; i < LOGIC_LENGTH; i++) {
+        if (map[x][y].cell.logic[i] != map[x1][y1].cell.logic[i]) {
+            count++;
+        }
+    }
+    if (count > 10) return false;
+    else return true;
+}
+
+void removeCell(int x, int y) {
+    map[x][y].cell.oldx = x;
+    map[x][y].cell.oldy = y;
+    map[x][y].cell.boredNow = false;
+    map[x][y].cell.death = false;
+    map[x][y].cell.alreadyWalk = false;
+    map[x][y].cell.energy = 0;
+    map[x][y].free = true;
+}
+
+int calculateEnergy(int energy, int minus) {
+    if (energy - minus > 0) {
+        return energy - minus;
+    }
+    else return 0;
+}
+
+int main()
+{
+    setlocale(LC_ALL, "rus");
+    srand(time(NULL));
+    SetConsoleTitleA(string("RECTANGLE OF LIFE").c_str());
+    window();
+    updateConsoleSize();
+    cout << "Не нажимайте ПКМ во время симуляции (я серьёзно)\nНе изменяйте размеры вашего окна во время симуляции (тоже самое)\nДля регистрации нажатий необходимо выбрать английскую раскладку и отключить CAPS LOCK\nw - Включить/Выключить зацикленный мир (не работает)\ni - Вывести информацию о клетке (нужно навестись мышью)\ng - Вывести информацию о клетке в буфере обмена\nc - Скопировать клетку (нужно навестись машью)\nv - вставить клетку (вставится на место курсора)\n1 - Отображение загрязнения (необходимо нажимать на паузе)";
+    _getch();
+    system("cls");
+    Sleep(100);
+_menu:
+    FIELD_SIZE_X = 0;
+    FIELD_SIZE_Y = 0;
+    for (int active = 0; ;) {
+        int selected = menu("fast_start.bmp settings.bmp reinit_window.bmp", active, 150, 30, 2, 30, 100, 300);
+        active = selected;
+        if (selected == 0) {
+            break;
+        }
+        if (selected == 2) {
+            removeScrollbar();
+            updateConsoleSize();
+            showCursor(false);
+            Sleep(100);
+        }
+    }
+    system("cls");
+    cout << "Размер набора генов (должно делиться на 3, int), рекомендуется 24: ";
+    cin >> LOGIC_LENGTH;
+    cout << "Сколько энергии даёт фотосинтез (int), рекомендуется 10: ";
+    cin >> SUN_ENERGY;
+    cout << "Сколько клеток будет изначально (int), рекомендуется 10000: ";
+    cin >> SPAWN_CELLS;
+    cout << "Максимальное количество энергии у 1 клетки (int), рекомендуется 1000000: ";
+    cin >> MAX_ENERGY;
+    cout << "Сколько остаётся органики после смерти клетки (int), рекомендуется 50: ";
+    cin >> ORGANICS_CELL_DIE;
+    cout << "Количество органики, после которого клетки постепенно травятся (int), рекомендуется 25500: ";
+    cin >> DANGER_ORGANICS_COUNT;
+    cout << "По сколько энергии будет отнимать большое количество органики (int), рекомендуется 15: ";
+    cin >> ORGANICS_POISON;
+    cout << "Сколько клетка-растение сможет съедать органики за раз (int), рекомендуется 25: ";
+    cin >> CELLS_EAT_ORGANICS;
+    cout << "Количество энергии для деления (int), рекомендуется 20000: ";
+    cin >> ENERGY_NEED_DEVISION;
+    cout << "Количество энергии для ходьбы (int), рекомендуется 10 или 15: ";
+    cin >> ENERGY_NEED_WALK;
+    cout << "Количество энергии для ожидания (int), рекомендуется 9: ";
+    cin >> ENERGY_NEED_STAY;
+    cout << "Начальная энергия для всех клеток (int), рекомендуется 10000: ";
+    cin >> START_ENERGY;
+    cout << "Размер клетки (пиксели) (int) (3-infinity), рекомендуется 5 или 10: ";
+    cin >> CELL_SIZE;
+    system("cls");
+    Sleep(100);
+    clear();
+    DrawField(0, 0, calculateNumber(CONSOLE_SIZE_X / 100 * FIELD_SIZE_PROC), calculateNumber(CONSOLE_SIZE_Y));
+    DrawInfoBackground();
+    resizeMap();
+    HDC dc = GetDC(GetConsoleWindow());
+    SelectObject(dc, GetStockObject(NULL_PEN));
+    SelectObject(dc, WHITE);
+    for (int i = 0; i < SPAWN_CELLS; i++) {
+        int x;
+        int y;
+        while (true) {
+            x = random(0, FIELD_SIZE_X - 1);
+            y = random(0, FIELD_SIZE_Y - 1);
+            if (map[x][y].free) {
+                int type = random(1, 2);
+                if (type == 1) {
+                    map[x][y].cell.type = "rectangle";
+                }
+                else if (type == 2) {
+                    map[x][y].cell.type = "ellipse";
+                }
+                map[x][y].cell.oldx = x;
+                map[x][y].cell.oldy = y;
+                map[x][y].cell.logic = createLogic(LOGIC_LENGTH);
+                map[x][y].free = false;
+                map[x][y].cell.energy = START_ENERGY;
+                initColor(x, y);
+                HBRUSH cellBrush = CreateSolidBrush(map[x][y].cell.cellColor);
+                SelectObject(dc, cellBrush);
+                if (map[x][y].cell.type == "rectangle") Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                else if (map[x][y].cell.type == "ellipse") Ellipse(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                DeleteObject(cellBrush);
+                break;
+            }
+        }
+    }
+    while (true) {
+        for (int j = 0; j < LOGIC_LENGTH; j++) {
+            for (int x = 0; x < map.size(); x++) {
+                for (int y = 0; y < map[x].size(); y++) {
+                    if (!map[x][y].cell.death && map[x][y].organics >= DANGER_ORGANICS_COUNT && !map[x][y].free) {
+                        if (map[x][y].cell.energy - ORGANICS_POISON > 0) {
+                            map[x][y].cell.energy -= ORGANICS_POISON;
+                        }
+                        else {
+                            map[x][y].cell.energy = 0;
+                            map[x][y].organics += ORGANICS_CELL_DIE;
+                        }
+                    }
+                    if (!map[x][y].cell.death && !map[x][y].free && map[x][y].cell.energy <= 0) {
+                        map[x][y].cell.death = true;
+                        map[x][y].organics += ORGANICS_CELL_DIE;
+                    }
+                    else if (!map[x][y].free && !map[x][y].cell.alreadyWalk && !map[x][y].cell.boredNow && !map[x][y].cell.death && map[x][y].cell.energy > 0) {
+                        if (random(0, (map[x][y].cell.energy / 100)) == 0) {
+                         
+                            map[x][y].cell.logic = createLogic(LOGIC_LENGTH);
+                            initColor(x, y);
+                            int type = random(1, 2);
+                            if (type == 1) {
+                                map[x][y].cell.type = "rectangle";
+                            }
+                            else if (type == 2) {
+                                map[x][y].cell.type = "ellipse";
+                            }
+                        }
+                        if (map[x][y].cell.logic[j] == 1) {
+                            if (map[x][y].cell.logic[j + 1] == 6) {
+                                if (y - 1 >= 0 && map[x][y - 1].free && !map[x][y - 1].cell.death) {
+                                    map[x][y].cell.energy = calculateEnergy(map[x][y].cell.energy, ENERGY_NEED_WALK);
+                                    if (map[x][y].cell.energy <= 0) map[x][y].cell.death = true;
+                                    else {
+                                        map[x][y - 1].cell = map[x][y].cell;
+                                        map[x][y].free = true;
+                                        map[x][y - 1].free = false;
+                                        map[x][y - 1].cell.alreadyWalk = true;
+                                    }
+                                }
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 7) {
+                                if (x - 1 >= 0 && map[x - 1][y].free && !map[x - 1][y].cell.death) {
+                                    map[x][y].cell.energy = calculateEnergy(map[x][y].cell.energy, ENERGY_NEED_WALK);
+                                    if (map[x][y].cell.energy <= 0) map[x][y].cell.death = true;
+                                    else {
+                                        map[x - 1][y].cell = map[x][y].cell;
+                                        map[x][y].free = true;
+                                        map[x - 1][y].free = false;
+                                        map[x - 1][y].cell.alreadyWalk = true;
+                                    }
+                                }
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 8) {
+                                if (y + 1 < FIELD_SIZE_Y && map[x][y + 1].free && !map[x][y + 1].cell.death) {
+                                    map[x][y].cell.energy = calculateEnergy(map[x][y].cell.energy, ENERGY_NEED_WALK);
+                                    if (map[x][y].cell.energy <= 0) map[x][y].cell.death = true;
+                                    else {
+                                        map[x][y + 1].cell = map[x][y].cell;
+                                        map[x][y].free = true;
+                                        map[x][y + 1].free = false;
+                                        map[x][y + 1].cell.alreadyWalk = true;
+                                    }
+                                }
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 9) {
+                                if (x + 1 < FIELD_SIZE_X && map[x + 1][y].free && !map[x + 1][y].cell.death) {
+                                    map[x][y].cell.energy = calculateEnergy(map[x][y].cell.energy, ENERGY_NEED_WALK);
+                                    if (map[x][y].cell.energy <= 0) map[x][y].cell.death = true;
+                                    else {
+                                        map[x + 1][y].cell = map[x][y].cell;
+                                        map[x][y].free = true;
+                                        map[x + 1][y].free = false;
+                                        map[x + 1][y].cell.alreadyWalk = true;
+                                    }
+                                }
+                            }
+                        }
+                        if (map[x][y].cell.logic[j] == 2) {
+                            if (map[x][y].cell.energy + SUN_ENERGY <= MAX_ENERGY) map[x][y].cell.energy += SUN_ENERGY;
+                            else map[x][y].cell.energy = MAX_ENERGY;
+                        }
+                        else if (map[x][y].cell.logic[j] == 3) {
+                            if (map[x][y].cell.logic[j + 1] == 6 && y - 1 >= 0) {
+                                if (map[x][y].cell.type == "rectangle" && !map[x][y - 1].free && !map[x][y - 1].cell.death) {
+                                    if (map[x][y].cell.energy + map[x][y - 1].cell.energy <= MAX_ENERGY && !map[x][y - 1].cell.death) map[x][y].cell.energy += map[x][y - 1].cell.energy;
+                                    else map[x][y].cell.energy = MAX_ENERGY;
+                                    map[x][y - 1].cell.death = true;
+                                }
+                                else if (map[x][y].cell.type == "ellipse" && map[x][y].cell.energy + CELLS_EAT_ORGANICS <= MAX_ENERGY && map[x][y - 1].organics >= CELLS_EAT_ORGANICS) {
+                                    map[x][y].cell.energy += CELLS_EAT_ORGANICS;
+                                    map[x][y - 1].organics -= CELLS_EAT_ORGANICS;
+                                }
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 7 && x - 1 >= 0) {
+                                if (map[x][y].cell.type == "rectangle" && !map[x - 1][y].free && !map[x - 1][y].cell.death) {
+                                    if (map[x][y].cell.energy + map[x - 1][y].cell.energy <= MAX_ENERGY && !map[x - 1][y].cell.death) map[x][y].cell.energy += map[x - 1][y].cell.energy;
+                                    else map[x][y].cell.energy = MAX_ENERGY;
+                                    map[x - 1][y].cell.death = true;
+                                }
+                                else if (map[x][y].cell.type == "ellipse" && map[x][y].cell.energy + CELLS_EAT_ORGANICS <= MAX_ENERGY && map[x - 1][y].organics >= CELLS_EAT_ORGANICS) {
+                                    map[x][y].cell.energy += CELLS_EAT_ORGANICS;
+                                    map[x - 1][y].organics -= CELLS_EAT_ORGANICS;
+                                }
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 8 && y + 1 < FIELD_SIZE_Y) {
+                                if (map[x][y].cell.type == "rectangle" && !map[x][y + 1].free && !map[x][y + 1].cell.death) {
+                                    if (map[x][y].cell.energy + map[x][y + 1].cell.energy <= MAX_ENERGY && !map[x][y + 1].cell.death) map[x][y].cell.energy += map[x][y + 1].cell.energy;
+                                    else map[x][y].cell.energy = MAX_ENERGY;
+                                    map[x][y + 1].cell.death = true;
+                                }
+                                else if (map[x][y].cell.type == "ellipse" && map[x][y].cell.energy + CELLS_EAT_ORGANICS <= MAX_ENERGY && map[x][y + 1].organics >= CELLS_EAT_ORGANICS) {
+                                    map[x][y].cell.energy += CELLS_EAT_ORGANICS;
+                                    map[x][y + 1].organics -= CELLS_EAT_ORGANICS;
+                                }
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 9 && x + 1 < FIELD_SIZE_X) {
+                                if (map[x][y].cell.type == "rectangle" && !map[x + 1][y].free && !map[x + 1][y].cell.death) {
+                                    if (map[x][y].cell.energy + map[x + 1][y].cell.energy <= MAX_ENERGY && !map[x + 1][y].cell.death) map[x][y].cell.energy += map[x + 1][y].cell.energy;
+                                    else map[x][y].cell.energy = MAX_ENERGY;
+                                    map[x + 1][y].cell.death = true;
+                                }
+                                else if (map[x][y].cell.type == "ellipse" && map[x][y].cell.energy + CELLS_EAT_ORGANICS <= MAX_ENERGY && map[x + 1][y].organics >= CELLS_EAT_ORGANICS) {
+                                    map[x][y].cell.energy += CELLS_EAT_ORGANICS;
+                                    map[x + 1][y].organics -= CELLS_EAT_ORGANICS;
+                                }
+                            }
+                        }
+                        else if (map[x][y].cell.logic[j] == 5 && map[x][y].cell.energy >= ENERGY_NEED_DEVISION) {
+                            if (map[x][y].cell.logic[j + 1] == 6 && y - 1 >= 0 && map[x][y - 1].free && !map[x][y - 1].cell.death) {
+                                map[x][y - 1].cell = map[x][y].cell;
+                                map[x][y - 1].cell.oldy = y - 1;
+                                map[x][y - 1].cell.boredNow = true;
+                                map[x][y - 1].free = false;
+                                map[x][y - 1].cell.energy = map[x][y].cell.energy / 2;
+                                map[x][y].cell.energy -= map[x][y].cell.energy / 2;
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 7 && x - 1 >= 0 && map[x - 1][y].free && !map[x - 1][y].cell.death) {
+                                map[x - 1][y].cell = map[x][y].cell;
+                                map[x - 1][y].cell.oldx = x - 1;
+                                map[x - 1][y].cell.boredNow = true;
+                                map[x - 1][y].free = false;
+                                map[x - 1][y].cell.energy = map[x][y].cell.energy / 2;
+                                map[x][y].cell.energy -= map[x][y].cell.energy / 2;
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 8 && y + 1 < FIELD_SIZE_Y && map[x][y + 1].free && !map[x][y + 1].cell.death) {
+                                map[x][y + 1].cell = map[x][y].cell;
+                                map[x][y + 1].cell.oldy = y + 1;
+                                map[x][y + 1].cell.boredNow = true;
+                                map[x][y + 1].free = false;
+                                map[x][y + 1].cell.energy = map[x][y].cell.energy / 2;
+                                map[x][y].cell.energy -= map[x][y].cell.energy / 2;
+                            }
+                            else if (map[x][y].cell.logic[j + 1] == 9 && x + 1 < FIELD_SIZE_X && map[x + 1][y].free && !map[x + 1][y].cell.death) {
+                                map[x + 1][y].cell = map[x][y].cell;
+                                map[x + 1][y].cell.oldx = x + 1;
+                                map[x + 1][y].cell.boredNow = true;
+                                map[x + 1][y].free = false;
+                                map[x + 1][y].cell.energy = map[x][y].cell.energy / 2;
+                                map[x][y].cell.energy -= map[x][y].cell.energy / 2;
+                            }
+                        }
+
+                        if (map[x][y].cell.logic[j] == 0) {
+                            map[x][y].cell.energy = calculateEnergy(map[x][y].cell.energy, ENERGY_NEED_STAY);
+                            if (map[x][y].cell.energy <= 0) map[x][y].cell.death = true;
+                        }
+                    }
+                }
+            }
+            for (int x = 0; x < map.size(); x++) {
+                for (int y = 0; y < map[x].size(); y++) {
+                    map[x][y].cell.alreadyWalk = false;
+                    if (map[x][y].cell.death) {
+                        SelectObject(dc, FIELD_BACKGROUND);
+                        if (map[x][y].cell.alreadyWalk || !map[x][y].free) {
+                            Rectangle(dc, map[x][y].cell.oldx * CELL_SIZE + 1, map[x][y].cell.oldy * CELL_SIZE + 1, map[x][y].cell.oldx * CELL_SIZE + CELL_SIZE + 1, map[x][y].cell.oldy * CELL_SIZE + CELL_SIZE + 1);
+                        }
+                        else {
+                            Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                        }
+                        map[x][y].cell.oldx = x;
+                        map[x][y].cell.oldy = y;
+                        map[x][y].cell.boredNow = false;
+                        map[x][y].cell.death = false;
+                        map[x][y].cell.alreadyWalk = false;
+                        map[x][y].cell.energy = 0;
+                        map[x][y].free = true;
+                        map[x][y].organics += ORGANICS_CELL_DIE;
+                    }
+                    else if (map[x][y].cell.boredNow) {
+                        map[x][y].cell.boredNow = false;
+                        HBRUSH cellBrush = CreateSolidBrush(map[x][y].cell.cellColor);
+                        SelectObject(dc, cellBrush);
+                        if (map[x][y].cell.type == "rectangle") Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                        else if (map[x][y].cell.type == "ellipse") Ellipse(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                        DeleteObject(cellBrush);
+                    }
+                    else if (!map[x][y].free && (map[x][y].cell.oldx != x || map[x][y].cell.oldy != y)) {
+                        SelectObject(dc, FIELD_BACKGROUND);
+                        Rectangle(dc, map[x][y].cell.oldx * CELL_SIZE + 1, map[x][y].cell.oldy * CELL_SIZE + 1, map[x][y].cell.oldx * CELL_SIZE + CELL_SIZE + 1, map[x][y].cell.oldy * CELL_SIZE + CELL_SIZE + 1);
+                        map[x][y].cell.oldx = x;
+                        map[x][y].cell.oldy = y;
+                        HBRUSH cellBrush = CreateSolidBrush(map[x][y].cell.cellColor);
+                        SelectObject(dc, cellBrush);
+                        if (map[x][y].cell.type == "rectangle") Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                        else if (map[x][y].cell.type == "ellipse") Ellipse(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                        DeleteObject(cellBrush);
+                    }
+                }
+            }
+            if (DELAY_IS_ON) Sleep(DELAY);
+            if (_kbhit()) {
+                char key = _getch();
+                if (key == ' ') {
+                    while (true) {
+                        key = _getch();
+                        if (key == ' ') break;
+                        else if (key == 'c') {
+                            POINT cursor_position;
+                            GetCursorPos(&cursor_position);
+                            if (calculateNumber(cursor_position.x) / CELL_SIZE < FIELD_SIZE_X && calculateNumber(cursor_position.y) / CELL_SIZE < FIELD_SIZE_Y && !map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].free) {
+                                CLIPBOARD_CELL = map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell;
+                                SelectObject(dc, RED);
+                                if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "rectangle") Rectangle(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                else if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "ellipse") Ellipse(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                Sleep(100);
+                                HBRUSH cellBrush = CreateSolidBrush(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.cellColor);
+                                SelectObject(dc, cellBrush);
+                                if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "rectangle") Rectangle(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                else if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "ellipse") Ellipse(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                DeleteObject(cellBrush);
+                                CLIPBOARD_CELL.initializated = true;
+                            }
+                        }
+                        else if (key == 'v' && CLIPBOARD_CELL.initializated) {
+                            POINT cursor_position;
+                            GetCursorPos(&cursor_position);
+                            if (calculateNumber(cursor_position.x) / CELL_SIZE < FIELD_SIZE_X && calculateNumber(cursor_position.y) / CELL_SIZE < FIELD_SIZE_Y && map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].free) {
+                                map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell = CLIPBOARD_CELL;
+                                map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].free = false;
+                                HBRUSH cellBrush = CreateSolidBrush(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.cellColor);
+                                SelectObject(dc, cellBrush);
+                                if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "rectangle") Rectangle(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                else if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "ellipse") Ellipse(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                DeleteObject(cellBrush);
+                            }
+                        }
+                        else if (key == 'g' && CLIPBOARD_CELL.initializated) {
+                            string text = "";
+                            for (int i = 0; i < LOGIC_LENGTH; i++) {
+                                text += to_string(CLIPBOARD_CELL.logic[i]) + " ";
+                            }
+                            DrawInfoBackground();
+                            HFONT font = CreateFontA(-12, 0, 0, 0, 0, 0U, 0U, 0U, ANSI_CHARSET, 0U, 0U, 0U, 0U, "Arial");
+                            SelectObject(dc, font);
+                            RECT r = { FIELD_SIZE_X * CELL_SIZE + 10, 10, CONSOLE_SIZE_X - 10, CONSOLE_SIZE_Y - 10 };
+                            DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                            r.top += 150;
+                            text = "ENERGY: " + to_string(CLIPBOARD_CELL.energy);
+                            DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                        }
+                        else if (key == 'i') {
+                            POINT cursor_position;
+                            GetCursorPos(&cursor_position);
+                            DrawInfoBackground();
+                            if (calculateNumber(cursor_position.x) / CELL_SIZE < FIELD_SIZE_X && calculateNumber(cursor_position.y) / CELL_SIZE < FIELD_SIZE_Y && !map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].free) {
+                                initColor(calculateNumber(cursor_position.x) / CELL_SIZE, calculateNumber(cursor_position.y) / CELL_SIZE);
+                                string text = "";
+                                for (int i = 0; i < LOGIC_LENGTH; i++) {
+                                    text += to_string(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.logic[i]) + " ";
+                                }
+                                HFONT font = CreateFontA(-12, 0, 0, 0, 0, 0U, 0U, 0U, ANSI_CHARSET, 0U, 0U, 0U, 0U, "Arial");
+                                SelectObject(dc, font);
+                                RECT r = { FIELD_SIZE_X * CELL_SIZE + 10, 10, CONSOLE_SIZE_X - 10, CONSOLE_SIZE_Y - 10 };
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "ENERGY: " + to_string(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.energy);
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "FREE: " + to_string(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].free);
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "ORGANICS: " + to_string(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].organics);
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                SelectObject(dc, RED);
+                                if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "rectangle") Rectangle(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                else if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "ellipse") Ellipse(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                Sleep(100);
+                                HBRUSH cellBrush = CreateSolidBrush(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.cellColor);
+                                SelectObject(dc, cellBrush);
+                                if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "rectangle") Rectangle(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                else if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "ellipse") Ellipse(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                                DeleteObject(cellBrush);
+                            }
+                            else if (calculateNumber(cursor_position.x) / CELL_SIZE < FIELD_SIZE_X && calculateNumber(cursor_position.y) / CELL_SIZE < FIELD_SIZE_Y && map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].free) {
+                                string text = "";
+                                text = "ORGANICS: " + to_string(map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].organics);
+                                HFONT font = CreateFontA(-12, 0, 0, 0, 0, 0U, 0U, 0U, ANSI_CHARSET, 0U, 0U, 0U, 0U, "Arial");
+                                SelectObject(dc, font);
+                                RECT r = { FIELD_SIZE_X * CELL_SIZE + 10, 10, CONSOLE_SIZE_X - 10, CONSOLE_SIZE_Y - 10 };
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "FREE: " + to_string(map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].free);
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "DEATH: " + to_string(map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].cell.death);
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "ENERGY: " + to_string(map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].cell.energy);
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "TYPE: " + map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type;
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                                r.top += 25;
+                                text = "BORED NOW: " + to_string(map[calculateNumber(cursor_position.x) / 10][calculateNumber(cursor_position.y) / CELL_SIZE].cell.boredNow);
+                                DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                            }
+                        }
+                        else if (key == '1') {
+                            for (int x = 0; x < FIELD_SIZE_X; x++) {
+                                for (int y = 0; y < FIELD_SIZE_Y; y++) {
+                                    int R = map[x][y].organics;
+                                    HBRUSH brush = CreateSolidBrush(RGB(R / 100, 255 - (R / 100), 0));
+                                    SelectObject(dc, brush);
+                                    Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                                    DeleteObject(brush);
+                                }
+                            }
+                            _getch();
+                            for (int x = 0; x < FIELD_SIZE_X; x++) {
+                                for (int y = 0; y < FIELD_SIZE_Y; y++) {
+                                    if (!map[x][y].free) {
+                                        HBRUSH brush = CreateSolidBrush(map[x][y].cell.cellColor);
+                                        SelectObject(dc, brush);
+                                        if (map[x][y].cell.type == "rectangle") Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                                        else if (map[x][y].cell.type == "ellipse") {
+                                            SelectObject(dc, FIELD_BACKGROUND);
+                                            Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                                            SelectObject(dc, brush);
+                                            Ellipse(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                                        }
+                                        DeleteObject(brush);
+                                    }
+                                    else {
+                                        SelectObject(dc, FIELD_BACKGROUND);
+                                        Rectangle(dc, x * CELL_SIZE + 1, y * CELL_SIZE + 1, x * CELL_SIZE + CELL_SIZE + 1, y * CELL_SIZE + CELL_SIZE + 1);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                else if (key == 'v' && CLIPBOARD_CELL.initializated) {
+                    POINT cursor_position;
+                    GetCursorPos(&cursor_position);
+                    if (calculateNumber(cursor_position.x) / CELL_SIZE < FIELD_SIZE_X && calculateNumber(cursor_position.y) / CELL_SIZE < FIELD_SIZE_Y && map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].free) {
+                        map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell = CLIPBOARD_CELL;
+                        map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].free = false;
+                        HBRUSH cellBrush = CreateSolidBrush(map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / 10].cell.cellColor);
+                        SelectObject(dc, cellBrush);
+                        if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "rectangle") Rectangle(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                        else if (map[calculateNumber(cursor_position.x) / CELL_SIZE][calculateNumber(cursor_position.y) / CELL_SIZE].cell.type == "ellipse") Ellipse(dc, calculateNumber(cursor_position.x) + 1, calculateNumber(cursor_position.y) + 1, calculateNumber(cursor_position.x) + CELL_SIZE + 1, calculateNumber(cursor_position.y) + CELL_SIZE + 1);
+                        DeleteObject(cellBrush);
+                    }
+                }
+                else if (key == 'g' && CLIPBOARD_CELL.initializated) {
+                    string text = "";
+                    for (int i = 0; i < LOGIC_LENGTH; i++) {
+                        text += to_string(CLIPBOARD_CELL.logic[i]) + " ";
+                    }
+                    DrawInfoBackground();
+                    HFONT font = CreateFontA(-12, 0, 0, 0, 0, 0U, 0U, 0U, ANSI_CHARSET, 0U, 0U, 0U, 0U, "Arial");
+                    SelectObject(dc, font);
+                    RECT r = { FIELD_SIZE_X * CELL_SIZE + 10, 10, CONSOLE_SIZE_X - 10, CONSOLE_SIZE_Y - 10 };
+                    DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                    r.top += 150;
+                    text = "ENERGY: " + to_string(CLIPBOARD_CELL.energy);
+                    DrawTextA(dc, text.c_str(), text.length(), &r, DT_WORDBREAK);
+                }
+            }
+        }
+    }
+    _getch();
+    goto _menu;
+    return 0;
+}
